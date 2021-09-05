@@ -5,13 +5,32 @@
  * main.c
  */
 
+#include "config.h"
 #include <stdio.h>
-#include <arpa/inet.h>
+#ifdef HAVE_WINSOCK2_H
+# include <winsock2.h>
+#endif
+#ifdef HAVE_NETINET_IN_H
+# include <netinet/in.h>
+#endif
+#ifdef HAVE_ARPA_INET_H
+# include <arpa/inet.h>
+#endif
+#ifdef HAVE_STDLIB_H
 #include <stdlib.h>
-#include <netinet/in.h>
-#include <inttypes.h>
-#include <stdbool.h>
-#include <string.h>
+#endif
+#ifdef HAVE_INTTYPES_H
+# include <inttypes.h>
+#endif
+#ifdef HAVE_STDBOOL_H
+# include <stdbool.h>
+#endif
+#ifdef HAVE_STRING_H
+# include <string.h>
+#endif
+
+/* Read lines, params, etc. each to max. Length */
+#define __LINE_LENGTH 512
 
 /* structure of defined local ipv4 networks */
 typedef struct {
@@ -30,6 +49,10 @@ typedef struct {
   uint64_t unaccounted_packets;
   uint64_t unaccounted_bytes;
 }LOCALIPTRAF;
+
+#ifdef HAVE_WINSOCK2_H
+WSADATA wsaData;
+#endif
 
 /* globals */
 LOCALNET* localnet;
@@ -53,9 +76,9 @@ int import_localnets(char* localnet_cfg) {
   char ch;
   int count;
   count = 0;
-  char *network_a = malloc(sizeof(char)*34);
-  char *netmask_a = malloc(sizeof(char)*34);
-  char *line = malloc(sizeof(char)*34);
+  char *line = malloc(sizeof(char) * __LINE_LENGTH);
+  char *network_a = malloc(sizeof(char) * __LINE_LENGTH);
+  char *netmask_a = malloc(sizeof(char) * __LINE_LENGTH);
   int i;
 
   if (fp == NULL) {
@@ -67,9 +90,9 @@ int import_localnets(char* localnet_cfg) {
     if (ch == '\n') count++;
   } while (ch != EOF);
   rewind(fp);
-  localnet = malloc(count * sizeof(LOCALNET));
+  localnet = malloc(count * sizeof(*localnet));
   for (i = 0; i < count; i++) {
-    if ( (fgets(line, sizeof(char)*34, fp)) && (strlen(line) > 1) ) {
+    if ( (fgets(line, sizeof(char) * __LINE_LENGTH, fp)) && (strlen(line) > 1) ) {
       sscanf(line, "%[^/]/%[^ \n]", network_a, netmask_a);
       if (inet_aton(network_a, &localnet[i].network.sin_addr) == 0) {
         fprintf(stderr, "Syntax error in line %d in %s. Expecting N.N.N.N/M.M.M.M (Invalid Network %s)\n",
@@ -77,6 +100,9 @@ int import_localnets(char* localnet_cfg) {
             localnet_cfg,
             network_a);
         fclose(fp);
+        free(line);
+        free(network_a);
+        free(netmask_a);
         return(0);
       }
       if (inet_aton(netmask_a, &localnet[i].netmask.sin_addr) == 0) {
@@ -85,12 +111,18 @@ int import_localnets(char* localnet_cfg) {
             localnet_cfg,
             netmask_a);
         fclose(fp);
+        free(line);
+        free(network_a);
+        free(netmask_a);
         return(0);
       }
       //printf("Localnet %d added %s/%s\n", i+1 , inet_ntoa(localnet[i].network.sin_addr), inet_ntoa(localnet[i].netmask.sin_addr));
     }
   }
   fclose(fp);
+  free(line);
+  free(network_a);
+  free(netmask_a);
   return count;
 }
 
@@ -99,7 +131,7 @@ int import_localnets(char* localnet_cfg) {
  */
 bool ip_is_local(struct sockaddr_in ip) {
   int i;
-  for (i = 0; i < 4; i++) {
+  for (i = 0; i < sizeof(localnet)/sizeof(*localnet); i++) {
     if ((localnet[i].network.sin_addr.s_addr & localnet[i].netmask.sin_addr.s_addr) == (ip.sin_addr.s_addr & localnet[i].netmask.sin_addr.s_addr)) {
       return(1); // Match
     }
@@ -114,7 +146,7 @@ bool ip_is_local(struct sockaddr_in ip) {
 bool add_traffic_to_ip(struct sockaddr_in ip, uint64_t packets, uint64_t bytes, uint64_t unaccounted_packets, uint64_t unaccounted_bytes) {
   long unsigned int i;
   int ret = 0;
-  for ( i=0; i < sizeof(*localiptraf); i++) {
+  for ( i=0; i < sizeof(localiptraf)/sizeof(*localiptraf); i++) {
     if (localiptraf[i].ip.sin_addr.s_addr == 0) {
       localiptraf[i].ip = ip;
       localiptraf[i].packets = packets;
@@ -143,9 +175,9 @@ bool add_traffic_to_ip(struct sockaddr_in ip, uint64_t packets, uint64_t bytes, 
 bool account_ip(char *cmd) {
   FILE *fp;
   FILE *pp;
-  char *line = malloc(sizeof(char)*512);
-  char *src_a = malloc(sizeof(char)*512);
-  char *dst_a = malloc(sizeof(char)*512);
+  char *line;
+  char *src_a;
+  char *dst_a;
   struct sockaddr_in src;
   struct sockaddr_in dst;
   uint64_t packets;
@@ -155,6 +187,9 @@ bool account_ip(char *cmd) {
   int i;
   char ch;
 
+  line = malloc(sizeof(char) * __LINE_LENGTH);
+  src_a = malloc(sizeof(char) * __LINE_LENGTH);
+  dst_a = malloc(sizeof(char) * __LINE_LENGTH);
   fp = tmpfile();
   if (fp == NULL) {
     fprintf(stderr, "Could not execute %s.\n", cmd);
@@ -166,6 +201,9 @@ bool account_ip(char *cmd) {
     pclose(pp);
   }
   if ( (fp == NULL) || (pp == NULL) ) {
+    free(line);
+    free(src_a);
+    free(dst_a);
     return(0);
   }
   do {
@@ -175,36 +213,40 @@ bool account_ip(char *cmd) {
   } while (ch != EOF);
   pclose(pp);
   rewind(fp);
-  localiptraf = malloc(count * sizeof(LOCALIPTRAF) * 2); // this might be more than we need, but we don't need to realloc() in every single iteration
+  localiptraf = malloc(count * sizeof(*localiptraf) * 2); // this might be more than we need, but we don't need to realloc() in every single iteration
   if (localiptraf == NULL) {
     fprintf(stderr, "Not enough memory, to allocate traffic table.\n");
     fclose(fp);
+    free(line);
+    free(src_a);
+    free(dst_a);
     return(0);
   }
 
   for (i = 0; i < count; i++) {
-    if ( (fgets(line, sizeof(char)*512, fp)) &&  (i > 2) ) {
+    if ( (fgets(line, sizeof(char) * __LINE_LENGTH, fp)) &&  (i > 2) ) {
       sscanf(line, "%[^,],%[^,],%"SCNu64",%"SCNu64",%"SCNu64"\n", src_a, dst_a, &packets, &bytes, &violations);
       if (inet_aton(src_a, &src.sin_addr) == 0) {
-        fprintf(stderr, "Syntax error in input. Expecting S.S.S.S,D.D.D.D,packets,bytes,violations (Invalid Source IP %s)\n", src_a);
-        fclose(fp);
-        return(0);
+        fprintf(stderr, "Skipping Syntax error in input. Expecting S.S.S.S,D.D.D.D,packets,bytes,violations (Invalid Source IP %s)\n", src_a);
+        continue;
       }
       if (inet_aton(dst_a, &dst.sin_addr) == 0) {
-        fprintf(stderr, "Syntax error in input. Expecting S.S.S.S,D.D.D.D,packets,bytes,violations (Invalid Destination IP %s)\n", dst_a);
-        fclose(fp);
-        return(0);
+        fprintf(stderr, "Skipping Syntax error in input. Expecting S.S.S.S,D.D.D.D,packets,bytes,violations (Invalid Destination IP %s)\n", dst_a);
+        continue;
       }
     }
     if ( ip_is_local(src) && !ip_is_local(dst) )  {
       add_traffic_to_ip(src, packets, bytes, 0, 0);
     } else if ( ip_is_local(dst) && !ip_is_local(src) )  {
       add_traffic_to_ip(dst, packets, bytes, 0, 0);
-    } else if ( ip_is_local(src) && ip_is_local(dst) )  { /* local accounts to both SRC *and* DST */
+    } else if ( ip_is_local(src) && ip_is_local(dst) )  { /* local traffic accounts to both: SRC and DST. */
       add_traffic_to_ip(src, 0, 0, packets, bytes);
       add_traffic_to_ip(dst, 0, 0, packets, bytes);
     }
   }
+  free(line);
+  free(src_a);
+  free(dst_a);
   fclose(fp);
   return(1);
 }
@@ -212,7 +254,7 @@ bool account_ip(char *cmd) {
 void print_accounted() {
   long unsigned int i;
   printf("IP,packets,bytes,unaccounted_packets,unaccounted_bytes\n");
-  for ( i=0; i < sizeof(*localiptraf); i++) {
+  for ( i=0; i < sizeof(*localiptraf)/sizeof(LOCALIPTRAF); i++) {
     if (localiptraf[i].ip.sin_addr.s_addr != 0) {
       printf("%s,%"SCNu64",%"SCNu64",%"SCNu64",%"SCNu64"\n",
           inet_ntoa(localiptraf[i].ip.sin_addr),
@@ -229,9 +271,17 @@ void print_accounted() {
  * well, the good old main()
  */
 int main() {
+
   int ret = EXIT_FAILURE;
   char *localnet_cfg = "./../conf/localnet.cfg"; /* @TODO */
   char *account_cmd = "snmptable -m ALL -Cf , -Cb -CB -c public -v 2c oob-rtr-1-01 lipAccountingTable"; /* @TODO */
+#ifdef HAVE_WINSOCK2_H
+  int iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
+
+  if(iResult != NO_ERROR)
+    fprintf(stderr, "Error at WSAStartup().\n");
+  }
+#endif
 
   if (import_localnets(localnet_cfg) == 0) {
     fprintf(stderr, "No useful N.N.N.N/M.M.M localnet definitions found in %s\n", localnet_cfg);
@@ -246,6 +296,9 @@ int main() {
 
   free(localnet);
   free(localiptraf);
+#ifdef HAVE_WINSOCK2_H
+  WSACleanup();
+#endif
   return(ret);
 }
 
