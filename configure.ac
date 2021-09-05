@@ -1,0 +1,9 @@
+AC_INIT([cisco-collector], [0.0.1])
+AM_INIT_AUTOMAKE([foreign 1.13])
+AC_PROG_CC
+AC_CONFIG_SRCDIR([src/main.c])
+AC_CONFIG_HEADERS([config.h])
+AC_CONFIG_FILES([Makefile])
+AC_HEADER_STDBOOL
+AC_OUTPUT
+
