@@ -1,3 +1,3 @@
-bin_PROGRAMS = cisco-collect
+bin_PROGRAMS = ciscocollect
 AM_CFLAGS = $(CFLAGS) -O3 -Wpedantic
-cisco-collect_SOURCES = main.c
+ciscocollect_SOURCES = main.c

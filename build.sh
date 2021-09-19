@@ -1,12 +1,14 @@
+#!/bin/sh
 # try to build everything from scratch
 # parameters are used for ./configure
 
 aclocal
 autoheader -f
-autoconf --add-missing
+autoconf
 automake --add-missing
-autoreconf
+autoreconf -f
 
+# shellcheck disable=SC2068
 ./configure $@
 make
 
